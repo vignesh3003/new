@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+import numpy as np
 
 from .math_content import FORMULA_BLOCKS
 from .processing import (
@@ -76,6 +77,12 @@ async def analyze_ecg(file: UploadFile = File(...)) -> AnalysisResponse:
     feature_matrix, beats, r_peaks = build_feature_matrix(signal)
     pca_components, variance = run_pca(feature_matrix)
 
+    # Guard against NaN/inf values that cannot be JSON-encoded.
+    fft_freqs_clean = np.nan_to_num(fft_res.frequencies, nan=0.0, posinf=0.0, neginf=0.0)
+    fft_mags_clean = np.nan_to_num(fft_res.magnitudes, nan=0.0, posinf=0.0, neginf=0.0)
+    pca_components_clean = np.nan_to_num(pca_components, nan=0.0, posinf=0.0, neginf=0.0)
+    variance_clean = np.nan_to_num(variance, nan=0.0, posinf=0.0, neginf=0.0)
+
     method_summary = (
         "Adaptive Heartbeat-Aligned Fourier PCA centers each detected heartbeat at its R-peak, "
         "applies the Fourier transform per beat to capture spectral envelopes, and runs PCA on the "
@@ -90,10 +97,10 @@ async def analyze_ecg(file: UploadFile = File(...)) -> AnalysisResponse:
     ]
 
     response = AnalysisResponse(
-        fft_frequencies=fft_res.frequencies.tolist(),
-        fft_magnitudes=fft_res.magnitudes.tolist(),
-        pca_components=pca_components.tolist(),
-        explained_variance=variance.tolist(),
+        fft_frequencies=fft_freqs_clean.tolist(),
+        fft_magnitudes=fft_mags_clean.tolist(),
+        pca_components=pca_components_clean.tolist(),
+        explained_variance=variance_clean.tolist(),
         plots=plots,
         formulas=FORMULA_BLOCKS,
         steps=_build_steps(signal_len=signal.size, feature_rows=feature_matrix.shape[0], heartbeat_count=int(len(r_peaks))),

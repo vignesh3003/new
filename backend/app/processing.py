@@ -35,7 +35,8 @@ def load_signal_from_csv(file_bytes: bytes) -> np.ndarray:
     except UnicodeDecodeError as err:
         raise ValueError("Unable to decode file as UTF-8 text.") from err
 
-    data = []
+    data: list[float] = []
+    first_data_line = True
     for line in decoded.splitlines():
         line = line.strip()
         if not line:
@@ -43,8 +44,13 @@ def load_signal_from_csv(file_bytes: bytes) -> np.ndarray:
         value = line.split(",")[0]
         try:
             data.append(float(value))
-        except ValueError as exc:
-            raise ValueError(f"Invalid numeric value '{value}' in CSV.") from exc
+            first_data_line = False
+        except ValueError:
+            # If the *first* non-empty line is non-numeric, treat it as a header and skip it.
+            if first_data_line:
+                first_data_line = False
+                continue
+            raise ValueError(f"Invalid numeric value '{value}' in CSV (after header).")
 
     arr = np.asarray(data, dtype=np.float64)
     if arr.size < 8:
@@ -54,8 +60,11 @@ def load_signal_from_csv(file_bytes: bytes) -> np.ndarray:
 
 def compute_fft(signal: np.ndarray, sampling_rate: float = DEFAULT_SAMPLING_RATE) -> FFTResult:
     """Compute single-sided FFT magnitude spectrum."""
-    n = signal.size
-    spectrum = np.fft.fft(signal)
+    # Remove DC offset so the 0 Hz bin does not dominate the spectrum.
+    centered = signal.astype(np.float64) - float(np.mean(signal))
+
+    n = centered.size
+    spectrum = np.fft.fft(centered)
     freqs = np.fft.fftfreq(n, d=1.0 / sampling_rate)
 
     half = n // 2
@@ -162,7 +171,9 @@ def create_frequency_plot(fft_res: FFTResult) -> str:
     ax.set_title("FFT Magnitude Spectrum")
     ax.set_xlabel("Frequency (Hz)")
     ax.set_ylabel("Magnitude")
-    ax.set_xlim(0, fft_res.frequencies.max())
+    # Focus on the clinically relevant ECG band; zoom into low frequencies
+    max_freq = float(fft_res.frequencies.max())
+    ax.set_xlim(0, min(50.0, max_freq))
     ax.grid(True, alpha=0.3)
     return _fig_to_base64(fig)
 
